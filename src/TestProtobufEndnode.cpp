@@ -66,12 +66,6 @@ class EndNode : public Base,
 	osjob_t _joinJob;
 	osjob_t _txCompleteJob;
 
-	/*
-	 * Message send retry mechanism
-	 */
-	uint8_t _nbRetries = 0;
-	uint8_t _maxRetries = 1;
-
 public:
 
 	EndNode(RTCZero& rtc, const lmic_pinmap *pinmap): 
@@ -142,17 +136,19 @@ public:
 		console.print(" ", payload.type);
 		console.print(" ", ackRequest); 
 		console.println(" ", ack);
-		if (ack || !ackRequest) {
-			_nbRetries = 0;
-			return true;
-		} else {
-			if (++_nbRetries > _maxRetries) {
-				_nbRetries = 0;
-				return true;
-			}
-		}
-		return false;
+		return Base::isTxCompleted(payload, ackRequest, ack);
 	};
+
+	/*
+	 * Updates the system time
+	 */
+	virtual void updateSystemTime(uint32_t newTime) override {
+		ISRTimer::setEpoch(newTime);
+		RTCZero & rtc = ISRTimer::getRTC();
+		console.print("heure network=",	rtc.getHours()); 
+		console.print(":", rtc.getMinutes());
+		console.println(":", rtc.getSeconds());
+	}
 
 	/*
 	 * Updates the timer delay
@@ -239,7 +235,7 @@ void setup()
 
 	while (!Serial.available()) { delay(10); }
 
-	endnode.begin(	id[Config::DEVTEST1], 	Network::ORANGE,	ADR::ON		);
+	endnode.begin(id[DEVICE_CONFIG], DEVICE_NETWORK, ADR::ON);
 
 	delay(5000);
 	statusLed.off();
