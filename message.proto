@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package leuville;
+
+enum Type {
+	PING 	= 0;
+	BUTTON 	= 1;
+}
+
+message Uplink {		
+	Type	type			= 1;
+	uint32	battery 		= 2;
+}
+
+message Downlink {
+	uint32	pingDelay		= 1;	// seconds
+}
