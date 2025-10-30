@@ -16,7 +16,7 @@
 #include <misc-util.h>
 #include <ISRWrapper.h>
 #include <ISRTimer.h>
-#include <energy.h>
+#include <EnergyController.h>
 #include <StatusLed.h>
 #include <JobRegister.h>
 
@@ -51,6 +51,7 @@ using Base = ProtobufEndnode<
 	leuville_Downlink, leuville_Downlink_fields
 >;
 using Button1 = ISRWrapper<DEVICE_BUTTON1_PIN>;
+using EnergyCtrl = EnergyController<VOLTAGE_MIN,VOLTAGE_MAX>;
 
 /*
  * LoraWan + ProtocolBuffer endnode with:
@@ -59,9 +60,18 @@ using Button1 = ISRWrapper<DEVICE_BUTTON1_PIN>;
  * - standby mode capacity
  */
 class EndNode : public Base, 
-				private ISRTimer, private Button1
+				private ISRTimer, private Button1, private EnergyCtrl
 {
-	EnergyController<BATTPIN,BATTDIV,VOLTAGE_MIN,VOLTAGE_MAX> _energyCtrl;
+	const Range<u1_t> _rangeLora {MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX};
+
+	/*
+	 * Redefines EnergyController::defineGetVoltage()
+	 */
+	#if defined(ARDUINO_SAMD_FEATHER_M0) || defined(ADAFRUIT_FEATHER_M0)
+	virtual std::function<double(void)> defineGetVoltage() override {
+		return []() -> double { return analogRead(A7) * 2 * 3.3 / 1.023; };
+	}
+	#endif
 
 	/*
 	 * Jobs for LMIC event callbacks
@@ -95,19 +105,14 @@ public:
 	 */
 	void begin(const OTAAId& id, u4_t network, bool adr = true) override {
 		Wire.begin();
+		EnergyCtrl::begin();
 		Base::begin(id, network, adr);
 		Button1::begin();
 		ISRTimer::begin(); 
 
-		_energyCtrl.setUnusedPins({A1, A2, A3, A4, A5});
+		EnergyCtrl::setUnusedPins({A1, A2, A3, A4, A5});
 
 		startJoining();
-
-		// if LMIC uses interruptions we need to wait for JOIN before using other interruptions
-		#if !defined(LMIC_USE_INTERRUPTS)
-		ISRTimer::enable();
-		Button1::enable();
-		#endif
 	}
 
 	/*
@@ -145,14 +150,14 @@ public:
 	virtual void joined(bool ok) override {
 		if (ok) {
 			setCallback(_callbacks[JOIN]);
-			#if defined(LMIC_USE_INTERRUPTS)
 			Button1::enable();
 			ISRTimer::enable();
-			#endif
 		} else {
 			for (auto & job : _callbacks) {
 				unsetCallback(job);
 			}
+			Button1::disable();
+			ISRTimer::disable();
 		}
 	}
 
@@ -170,6 +175,14 @@ public:
 		console.println(":", rtc.getSeconds());
 		console.println("----------------------------------------------------------");
     	#endif
+	}
+	virtual bool isSystemTimeSynced() override {
+    	#if defined(LMIC_DEBUG_LEVEL) && LMIC_DEBUG_LEVEL > 0
+		console.println("----------------------------------------------------------");
+		console.println("system time age=", systemTimeAge()); 
+		console.println("----------------------------------------------------------");
+		#endif
+		return systemTimeAge() < SYSTEM_TIME_MAX_AGE;
 	}
 	#endif
 
@@ -217,11 +230,14 @@ public:
 	}
 
 	/*
-	 * Builds an uplink message
+	 * Set batteryLevel and builds an uplink message
 	 */
 	leuville_Uplink buildPayload(leuville_Type uplinkType) {
+		auto batt = getBatteryPower(_rangeLora);	
+		setLoraBatteryLevel(batt);
+
 		leuville_Uplink payload = leuville_Uplink_init_zero;
-		payload.battery = _energyCtrl.getBatteryPower();
+		payload.battery = scaleValue(batt, EnergyCtrl::_range100);
 		payload.type = uplinkType;
 		return payload;
 	}  
