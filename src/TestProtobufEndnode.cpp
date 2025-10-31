@@ -62,8 +62,6 @@ using EnergyCtrl = EnergyController<VOLTAGE_MIN,VOLTAGE_MAX>;
 class EndNode : public Base, 
 				private ISRTimer, private Button1, private EnergyCtrl
 {
-	const Range<u1_t> _rangeLora {MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX};
-
 	/*
 	 * Redefines EnergyController::defineGetVoltage()
 	 */
@@ -233,11 +231,11 @@ public:
 	 * Set batteryLevel and builds an uplink message
 	 */
 	leuville_Uplink buildPayload(leuville_Type uplinkType) {
-		auto batt = getBatteryPower(_rangeLora);	
-		setLoraBatteryLevel(batt);
+		auto batt = getBatteryPower();	
+		setBatteryLevel(batt);
 
 		leuville_Uplink payload = leuville_Uplink_init_zero;
-		payload.battery = scaleValue(batt, EnergyCtrl::_range100);
+		payload.battery = batt;
 		payload.type = uplinkType;
 		return payload;
 	}  
